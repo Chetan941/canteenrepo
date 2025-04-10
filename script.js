@@ -244,8 +244,8 @@ function redirectToDashboard(type) {
             return;
     }
     
-    // Open in same tab
-    window.open(dashboardUrl, '_self');
+    // Open in new tab
+    window.open(dashboardUrl, '_blank');
 }
 
 // Show appropriate dashboard based on user type
@@ -483,11 +483,14 @@ function removeItem(e) {
 
 // Handle checkout
 function handleCheckout() {
-    if (cart.length === 0) return;
+    if (cart.length === 0) {
+        alert("Your cart is empty!");
+        return;
+    }
 
     const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-
-    // Create order in database
+    
+    // Create order object
     const order = {
         studentId: currentUser.uid,
         studentName: currentUser.email.split('@')[0],
@@ -497,44 +500,37 @@ function handleCheckout() {
         timestamp: firebase.database.ServerValue.TIMESTAMP
     };
 
+    // Show loading state
+    checkoutBtn.disabled = true;
+    checkoutBtn.textContent = 'Placing Order...';
+
+    // Save to Firebase
     database.ref('orders').push(order)
         .then(() => {
-            // Clear cart after successful order placement
+            // Clear cart on success
             cart = [];
             saveCart();
             updateCartCount();
             renderCart();
-
-            // Process payment
-            processPayment(total);
+            
+            // Show success message
+            alert(`Order placed successfully! Total: ₹${total}`);
         })
         .catch(error => {
-            console.error('Error placing order:', error);
-            alert('Failed to place order. Please try again.');
+            console.error("Order placement error:", error);
+            
+            // More specific error messages
+            if (error.message.includes('PERMISSION_DENIED')) {
+                alert('Error: You dont have permission to place orders. Please contact support.');
+            } else {
+                alert(`Order failed: ${error.message}`);
+            }
+        })
+        .finally(() => {
+            // Reset button state
+            checkoutBtn.disabled = false;
+            checkoutBtn.textContent = 'Proceed to Checkout';
         });
-}
-
-// Process payment with Razorpay
-function processPayment(amount) {
-    const options = {
-        key: 'rzp_test_1DP5mmOlF5G5ag', // Replace with your Razorpay key
-        amount: amount * 100, // Amount in paise
-        currency: 'INR',
-        name: 'College Canteen',
-        description: 'Payment for canteen order',
-        handler: function (response) {
-            alert('Payment successful! Payment ID: ' + response.razorpay_payment_id);
-        },
-        prefill: {
-            email: currentUser.email
-        },
-        theme: {
-            color: '#4a6fa5'
-        }
-    };
-
-    const rzp = new Razorpay(options);
-    rzp.open();
 }
 
 // Load orders for staff
