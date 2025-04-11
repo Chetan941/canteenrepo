@@ -694,3 +694,73 @@ body {
     background-color: #27ae60;
     color: white;
 }
+
+/* Add these styles to your existing CSS */
+.menu-item-actions button {
+    padding: 8px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s;
+    border: none;
+    color: white;
+}
+
+/* Style for "Mark Sold Out" button (same as Add to Cart) */
+.add-to-cart {
+    background-color: #4a6fa5;
+}
+
+.add-to-cart:hover {
+    background-color: #3a5a8f;
+}
+
+/* Style for "Mark Available" button (same as Sold Out) */
+.sold-out {
+    background-color: #e74c3c;
+    cursor: pointer; /* Make it clickable unlike student view */
+}
+
+.sold-out:hover {
+    background-color: #c0392b;
+}
+
+/* Button States */
+.menu-item-actions button.loading {
+    opacity: 0.7;
+    cursor: progress;
+}
+
+/* Alert Styles */
+.alert {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 15px;
+    border-radius: 4px;
+    color: white;
+    max-width: 300px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+    z-index: 1000;
+    animation: slideIn 0.3s ease-out;
+}
+
+.alert-error {
+    background-color: #e74c3c;
+}
+
+.alert-success {
+    background-color: #2ecc71;
+}
+
+.close-alert {
+    float: right;
+    cursor: pointer;
+    font-weight: bold;
+    margin-left: 10px;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}

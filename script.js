@@ -250,7 +250,7 @@ function redirectToDashboard(type) {
     }
     
     // Open in new tab
-    window.open(dashboardUrl, '_blank');
+    window.open(dashboardUrl, '_self');
 }
 
 // Show appropriate dashboard based on user type
@@ -695,7 +695,7 @@ function renderStaffMenuItems() {
             <p class="menu-item-desc">${item.description || ''}</p>
             <p class="menu-item-price">₹${item.price}</p>
             <div class="menu-item-actions">
-              <button class="${item.soldOut ? 'mark-available' : 'mark-sold-out'}" data-id="${item.id}">
+              <button class="${item.soldOut ? 'sold-out' : 'add-to-cart'}" data-id="${item.id}">
                 ${item.soldOut ? 'Mark Available' : 'Mark Sold Out'}
               </button>
             </div>
@@ -704,8 +704,8 @@ function renderStaffMenuItems() {
         staffMenuItems.appendChild(menuItem);
     });
 
-    // Add event listeners to toggle sold out status
-    document.querySelectorAll('.mark-sold-out, .mark-available').forEach(button => {
+    // Add event listeners
+    document.querySelectorAll('.menu-item-actions button').forEach(button => {
         button.addEventListener('click', toggleSoldOutStatus);
     });
 }
@@ -713,41 +713,61 @@ function renderStaffMenuItems() {
 // Toggle sold out status
 function toggleSoldOutStatus(e) {
     const button = e.target;
-    const originalText = button.textContent;
-    button.disabled = true;
-    button.textContent = 'Updating...';
-
     const itemId = button.getAttribute('data-id');
     const itemRef = database.ref(`menu/${itemId}`);
-    const isCurrentlySoldOut = originalText.trim() === 'Mark Available';
 
-    // First check if user is authorized
+    // Visual feedback - add loading class
+    button.classList.add('loading');
+    const originalText = button.textContent;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+
+    // Determine new status based on current button class
+    const newStatus = button.classList.contains('sold-out');
+
+    // First verify user permissions
     database.ref(`users/${auth.currentUser.uid}/type`).once('value')
         .then(snapshot => {
             const userType = snapshot.val();
             if (userType !== 'admin' && userType !== 'staff') {
-                throw new Error('PERMISSION_DENIED: Only staff and admin can update menu items');
+                throw new Error('PERMISSION_DENIED');
             }
             
-            // Then update the item status
-            return itemRef.update({ soldOut: !isCurrentlySoldOut });
+            // Update the item status
+            return itemRef.update({ soldOut: !newStatus });
         })
         .then(() => {
-            console.log(`Item ${itemId} status updated successfully`);
-            // The real-time listener will update the UI automatically
+            // Success - real-time listener will update UI
+            console.log(`Item ${itemId} status updated to ${!newStatus ? 'Sold Out' : 'Available'}`);
         })
         .catch(error => {
-            console.error('Error updating item status:', error);
-            button.disabled = false;
-            button.textContent = originalText;
+            console.error('Status update failed:', error);
             
-            // More specific error messages
+            // Restore button state
+            button.classList.remove('loading');
+            button.innerHTML = originalText;
+            
+            // Specific error messages
             if (error.message.includes('PERMISSION_DENIED')) {
-                alert('You do not have permission to update menu items');
+                showAlert('error', 'Permission denied', 'Only staff/admin can update menu items');
             } else {
-                alert('Failed to update item status. Please try again.\nError: ' + error.message);
+                showAlert('error', 'Update failed', 'Please try again. ' + error.message);
             }
         });
+}
+
+// Helper function for consistent alerts (add to your utilities)
+function showAlert(type, title, message) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type}`;
+    alertDiv.innerHTML = `
+        <strong>${title}</strong>: ${message}
+        <span class="close-alert">&times;</span>
+    `;
+    document.body.appendChild(alertDiv);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => alertDiv.remove(), 5000);
+    alertDiv.querySelector('.close-alert').addEventListener('click', () => alertDiv.remove());
 }
 // Render menu items for admin
 function renderAdminMenuItems() {
@@ -894,11 +914,11 @@ function loadUsers() {
 }
 
 // Add user
-function addUser(e) {
+async function addUser(e) {
     e.preventDefault();
 
     const type = document.getElementById('user-type').value;
-    const email = document.getElementById('user-email').value;
+    const email = document.getElementById('user-email').value.toLowerCase().trim(); // Normalize email
     const password = document.getElementById('user-password').value;
 
     if (!type || !email || !password) {
@@ -906,59 +926,99 @@ function addUser(e) {
         return;
     }
 
-    // Store current admin credentials
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-        alert('Session expired. Please login again.');
-        return;
-    }
+    try {
+        // 1. Verify admin credentials first
+        const currentAdmin = auth.currentUser;
+        if (!currentAdmin) throw new Error('Admin not logged in');
+        
+        const adminPassword = prompt("Please enter your ADMIN password to confirm user creation:");
+        if (!adminPassword) throw new Error('Admin authentication cancelled');
+        
+        // Re-authenticate admin
+        const credential = firebase.auth.EmailAuthProvider.credential(currentAdmin.email, adminPassword);
+        await currentAdmin.reauthenticateWithCredential(credential);
 
-    // Get current user's auth token before creating new user
-    currentUser.getIdToken()
-        .then((idToken) => {
-            // Create new user
-            return auth.createUserWithEmailAndPassword(email, password)
-                .then((userCredential) => {
-                    const newUser = userCredential.user;
-                    
-                    // Add user to database using admin credentials
-                    return database.ref(`users/${newUser.uid}`).set({
-                        email: email,
-                        type: type
-                    }, (error) => {
-                        if (error) {
-                            throw error;
-                        }
-                        return newUser;
-                    });
+        // 2. Check if email exists in Auth or Database
+        const [authMethods, dbSnapshot] = await Promise.all([
+            auth.fetchSignInMethodsForEmail(email),
+            database.ref('users').orderByChild('email').equalTo(email).once('value')
+        ]);
+
+        // 3. Handle existing user cases
+        if (authMethods.length > 0 || dbSnapshot.exists()) {
+            let message = 'This email is already registered:\n';
+            
+            if (authMethods.length > 0) {
+                message += '- In Firebase Authentication\n';
+                // Check if we can get the UID
+                try {
+                    const userCredential = await auth.signInWithEmailAndPassword(email, 'dummy_password');
+                    message += `- User UID: ${userCredential.user?.uid || 'unknown'}\n`;
+                    await auth.signOut(); // Immediately sign out
+                } catch (authError) {
+                    message += `- Auth error: ${authError.message}\n`;
+                }
+            }
+            
+            if (dbSnapshot.exists()) {
+                message += '- In Database with these details:\n';
+                dbSnapshot.forEach(user => {
+                    message += `  - UID: ${user.key}, Type: ${user.val().type}\n`;
                 });
-        })
-        .then(() => {
-            // Re-authenticate admin to maintain session
-            return auth.signInWithEmailAndPassword(currentUser.email, prompt("Please re-enter your admin password to continue:"));
-        })
-        .then(() => {
-            addUserForm.reset();
-            alert(`${type} user created successfully!`);
-            return loadUsers();
-        })
-        .catch(error => {
-            console.error('Error adding user:', error);
-            
-            // Re-authenticate admin if session was lost
-            if (error.code === 'auth/requires-recent-login') {
-                auth.signInWithEmailAndPassword(currentUser.email, prompt("Session expired. Please re-enter your admin password:"))
-                    .then(() => loadUsers());
             }
             
-            if (error.code === 'auth/email-already-in-use') {
-                alert('This email is already registered.');
-            } else {
-                alert('Error: ' + error.message);
-            }
-            
-            loadUsers();
+            throw new Error(message);
+        }
+
+        // 4. Create new user
+        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+        
+        // 5. Add to database
+        await database.ref(`users/${userCredential.user.uid}`).set({
+            email: email,
+            type: type,
+            createdAt: firebase.database.ServerValue.TIMESTAMP
         });
+
+        // 6. Re-sign admin back in
+        await auth.signInWithEmailAndPassword(currentAdmin.email, adminPassword);
+        
+        alert(`Success! ${type} user created with UID: ${userCredential.user.uid}`);
+        addUserForm.reset();
+        loadUsers();
+        
+    } catch (error) {
+        console.error('User creation failed:', error);
+        
+        // Special handling for auth/email-already-in-use
+        if (error.code === 'auth/email-already-in-use') {
+            let message = 'This email is registered in Firebase Auth but ';
+            
+            // Check if it exists in database
+            const dbSnapshot = await database.ref('users').orderByChild('email').equalTo(email).once('value');
+            if (dbSnapshot.exists()) {
+                message += 'also exists in database.\n';
+                dbSnapshot.forEach(user => {
+                    message += `UID: ${user.key}, Type: ${user.val().type}\n`;
+                });
+                message += '\nThis suggests a data inconsistency.';
+            } else {
+                message += 'not in database.\n';
+                message += 'You can try:\n1. Resetting password for this email\n';
+                message += '2. Using a different email\n';
+                message += '3. Contacting support to resolve the orphaned account';
+            }
+            
+            alert(message);
+        } 
+        // Handle other errors
+        else if (error.code === 'auth/requires-recent-login') {
+            alert('Admin session expired. Please login again.');
+            logout();
+        } else {
+            alert('Error: ' + error.message);
+        }
+    }
 }
 
 // Delete user
