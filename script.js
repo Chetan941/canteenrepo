@@ -26,6 +26,7 @@ const loginPassword = document.getElementById('login-password');
 const loginSubmit = document.getElementById('login-submit');
 const loginError = document.getElementById('login-error');
 const modalTitle = document.getElementById('modal-title');
+const menuTabs = document.querySelectorAll('.menu-tab');
 
 // Dashboard elements (only if they exist on the current page)
 const studentDashboard = document.getElementById('student-dashboard');
@@ -82,6 +83,11 @@ if (staffLoginBtn) staffLoginBtn.addEventListener('click', () => openLoginModal(
 if (adminLoginBtn) adminLoginBtn.addEventListener('click', () => openLoginModal('admin'));
 if (closeBtn) closeBtn.addEventListener('click', closeLoginModal);
 if (loginForm) loginForm.addEventListener('submit', handleLogin);
+if (menuTabs.length > 0) {
+    menuTabs.forEach(tab => {
+        tab.addEventListener('click', filterMenuByCategory);
+    });
+}
 
 if (studentMenuBtn) studentMenuBtn.addEventListener('click', () => toggleStudentSection('menu'));
 if (studentCartBtn) studentCartBtn.addEventListener('click', () => toggleStudentSection('cart'));
@@ -328,6 +334,8 @@ function loadMenuItems() {
         snapshot.forEach(childSnapshot => {
             const item = childSnapshot.val();
             item.id = childSnapshot.key;
+            // Ensure category exists, default to 'other' if not
+            if (!item.category) item.category = 'other';
             menuItems.push(item);
         });
         
@@ -338,13 +346,18 @@ function loadMenuItems() {
 }
 
 // Render menu items for students
-function renderMenuItems() {
+function renderMenuItems(category = 'all') {
     menuItemsContainer.innerHTML = '';
 
-    menuItems.forEach(item => {
+    const filteredItems = category === 'all' 
+        ? menuItems 
+        : menuItems.filter(item => item.category === category);
+
+    filteredItems.forEach(item => {
         const menuItem = document.createElement('div');
         menuItem.className = 'menu-item';
         menuItem.innerHTML = `
+        <span class="menu-item-category">${item.category}</span>
         <img src="${item.image || 'https://via.placeholder.com/250x180?text=No+Image'}" alt="${item.name}" class="menu-item-img">
         <div class="menu-item-content">
           <h3 class="menu-item-title">${item.name}</h3>
@@ -682,13 +695,18 @@ function updateOrderStatus(e) {
 }
 
 // Render menu items for staff
-function renderStaffMenuItems() {
+function renderStaffMenuItems(category = 'all') {
     staffMenuItems.innerHTML = '';
 
-    menuItems.forEach(item => {
+    const filteredItems = category === 'all' 
+        ? menuItems 
+        : menuItems.filter(item => item.category === category);
+
+    filteredItems.forEach(item => {
         const menuItem = document.createElement('div');
         menuItem.className = 'menu-item';
         menuItem.innerHTML = `
+          <span class="menu-item-category">${item.category}</span>
           <img src="${item.image || 'https://via.placeholder.com/250x180?text=No+Image'}" alt="${item.name}" class="menu-item-img">
           <div class="menu-item-content">
             <h3 class="menu-item-title">${item.name}</h3>
@@ -770,13 +788,18 @@ function showAlert(type, title, message) {
     alertDiv.querySelector('.close-alert').addEventListener('click', () => alertDiv.remove());
 }
 // Render menu items for admin
-function renderAdminMenuItems() {
+function renderAdminMenuItems(category = 'all') {
     adminMenuItems.innerHTML = '';
 
-    menuItems.forEach(item => {
+    const filteredItems = category === 'all' 
+        ? menuItems 
+        : menuItems.filter(item => item.category === category);
+
+    filteredItems.forEach(item => {
         const menuItem = document.createElement('div');
         menuItem.className = 'menu-item';
         menuItem.innerHTML = `
+          <span class="menu-item-category">${item.category}</span>
           <img src="${item.image || 'https://via.placeholder.com/250x180?text=No+Image'}" alt="${item.name}" class="menu-item-img">
           <div class="menu-item-content">
             <h3 class="menu-item-title">${item.name}</h3>
@@ -800,13 +823,14 @@ function renderAdminMenuItems() {
 function addMenuItem(e) {
     e.preventDefault();
 
+    const category = document.getElementById('item-category').value;
     const name = document.getElementById('item-name').value;
     const description = document.getElementById('item-description').value;
     const price = parseFloat(document.getElementById('item-price').value);
     const image = document.getElementById('item-image').value;
 
-    if (!name || !price) {
-        alert('Name and price are required');
+    if (!category || !name || !price) {
+        alert('Category, name and price are required');
         return;
     }
 
@@ -815,6 +839,7 @@ function addMenuItem(e) {
         description,
         price,
         image,
+        category,
         soldOut: false
     };
 
@@ -825,6 +850,21 @@ function addMenuItem(e) {
         .catch(error => {
             console.error('Error adding menu item:', error);
         });
+}
+
+function filterMenuByCategory(e) {
+    const category = e.target.getAttribute('data-category');
+    
+    // Update active tab
+    document.querySelectorAll('.menu-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    e.target.classList.add('active');
+    
+    // Filter menu items
+    if (menuItemsContainer) renderMenuItems(category);
+    if (staffMenuItems) renderStaffMenuItems(category);
+    if (adminMenuItems) renderAdminMenuItems(category);
 }
 
 // Delete menu item
